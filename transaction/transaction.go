@@ -3,6 +3,7 @@ package transaction
 import (
 	"errors"
 	"time"
+	"fmt"
 
 	"github.com/discoviking/fsm"
 	"github.com/stefankopieczek/gossip/base"
@@ -130,10 +131,14 @@ func (tx *ClientTransaction) Receive(m base.SipMessage) {
 	switch {
 	case r.StatusCode < 200:
 		input = client_input_1xx
+	case r.StatusCode == 200:
+		input = reg_client_input_200
 	case r.StatusCode < 300:
 		input = client_input_2xx
+	case r.StatusCode == 401:
+		input = reg_client_input_401
 	default:
-		input = client_input_300_plus
+		input = reg_client_input_else
 	}
 
 	tx.fsm.Spin(input)
@@ -159,11 +164,42 @@ func (tx *ClientTransaction) transportError() {
 
 // Inform the TU that the transaction timed out.
 func (tx *ClientTransaction) timeoutError() {
+	fmt.Println("[transaction]: timeoutError")
 	tx.tu_err <- errors.New("transaction timed out.")
 }
 
 // Send an automatic ACK.
 func (tx *ClientTransaction) Ack() {
+	fmt.Println("[transaction]: In Ack Function")
+	ack := base.NewRequest(base.ACK,
+		tx.origin.Recipient,
+		tx.origin.SipVersion,
+		[]base.SipHeader{},
+		"")
+
+	// Copy headers from original request.
+	// TODO: Safety
+	base.CopyHeaders("From", tx.origin, ack)
+	base.CopyHeaders("Call-Id", tx.origin, ack)
+	base.CopyHeaders("Route", tx.origin, ack)
+	cseq := tx.origin.Headers("CSeq")[0].Copy()
+	cseq.(*base.CSeq).MethodName = base.ACK
+	ack.AddHeader(cseq)
+	via := tx.origin.Headers("Via")[0].Copy()
+	ack.AddHeader(via)
+
+	// Copy headers from response.
+	base.CopyHeaders("To", tx.lastResp, ack)
+
+	// Send the ACK.
+	tx.transport.Send(tx.dest, ack)
+}
+
+
+// TODO: Sushant
+// Send an Auth Register.
+func (tx *ClientTransaction) Auth() {
+	fmt.Println("[transaction] In Auth Function")
 	ack := base.NewRequest(base.ACK,
 		tx.origin.Recipient,
 		tx.origin.SipVersion,
@@ -190,6 +226,7 @@ func (tx *ClientTransaction) Ack() {
 
 // Return the channel we send responses on.
 func (tx *ClientTransaction) Responses() <-chan *base.Response {
+	fmt.Println("[transaction] : fetching the responses channel")
 	return (<-chan *base.Response)(tx.tu)
 }
 

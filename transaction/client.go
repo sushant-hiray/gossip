@@ -2,7 +2,7 @@ package transaction
 
 import (
 	"time"
-
+	"fmt"
 	"github.com/discoviking/fsm"
 	"github.com/stefankopieczek/gossip/base"
 	"github.com/stefankopieczek/gossip/log"
@@ -35,7 +35,10 @@ const (
 func (tx *ClientTransaction) initFSM() {
 	if tx.origin.Method == base.INVITE {
 		tx.initInviteFSM()
-	} else {
+	} else if tx.origin.Method == base.REGISTER {
+		fmt.Println("Initiailizing Register FSM")
+		tx.initRegisterFSM()
+	} else { 
 		tx.initNonInviteFSM()
 	}
 }

@@ -175,7 +175,7 @@ func (mng *Manager) handle(msg base.SipMessage) {
 // Create Client transaction.
 func (mng *Manager) Send(r *base.Request, dest string) *ClientTransaction {
 	log.Debug("Sending to %v: %v", dest, r.String())
-
+	fmt.Println("Sending to %v: %v", dest, r.String())
 	tx := &ClientTransaction{}
 	tx.origin = r
 	tx.dest = dest
