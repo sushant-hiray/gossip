@@ -20,8 +20,8 @@ var userid string = "user91"
 var testLog *log.Logger = log.New(os.Stdout, ">>> ", 0)
 
 func TestAAAASetup(t *testing.T) {
-	log.SetDefaultLogLevel(log.WARN)
-	testLog.Level = log.INFO
+	log.SetDefaultLogLevel(log.DEBUG)
+	testLog.Level = log.DEBUG
 }
 
 // func TestSendInviteUDP(t *testing.T) {
@@ -61,18 +61,18 @@ func TestSendRegisterUDP(t *testing.T) {
 		"",
 	})
 	assertNoError(t, err)
-	// ok, err := response([]string{
-	// 	"SIP/2.0 200 OK",
-	// 	"CSeq: 1 INVITE",
-	// 	"Via: SIP/2.0/UDP " + c_SERVER + ";branch=z9hG4bK996329494",
-	// 	"",
-	// 	"",
-	// })
+	ok, err := response([]string{
+		"SIP/2.0 401 Unauthorized",
+		"CSeq: 1 REGISTER",
+		"Via: SIP/2.0/UDP " + c_SERVER + ";branch=z9hG4bK996329494",
+		"",
+		"",
+	})
 
-	fmt.Println("Now proceeding further")
+	// fmt.Println("Now proceeding further")
 	test := transactionTest{actions: []action{
 		&clientSend{register},
-		// &clientRecv{ok},
+		&clientRecv{ok},
 	}}
 	test.Execute(t)
 }
@@ -124,11 +124,11 @@ func (test *transactionTest) Execute(t *testing.T) {
 	assertNoError(t, err)
 	defer test.client.Stop()
 
-	test.client_l, err = transport.NewManager("udp")
+	test.server, err = transport.NewManager("udp")
 	assertNoError(t, err)
-	defer test.client_l.Stop()
-	test.client_lRecv = test.client_l.GetChannel()
-	test.client_l.Listen(c_LISTEN)
+	defer test.server.Stop()
+	test.serverRecv = test.server.GetChannel()
+	test.server.Listen(c_LISTEN)
 
 	for _, actn := range test.actions {
 		testLog.Debug("Performing action %v", actn)
@@ -142,23 +142,6 @@ type clientSend struct {
 
 func (actn *clientSend) Act(test *transactionTest) error {
 	test.lastTx = test.client.Send(actn.msg, c_SERVER)
-
-	fmt.Println("Checking Responses")
-	responses := test.lastTx.Responses()
-	select {
-	case response, ok := <-responses:
-		if !ok {
-			fmt.Println("Response channel prematurely closed")
-			return fmt.Errorf("Response channel prematurely closed")
-		} else {
-			fmt.Println("Response from server:\n %s", response.String())
-			return nil
-		}
-	case <-time.After(time.Duration(2)*time.Second):
-		fmt.Println("Timed out waiting for response")
-		return fmt.Errorf("Timed out waiting for response")
-	}
-
 	return nil
 }
 
@@ -175,24 +158,29 @@ type clientRecv struct {
 }
 
 func (actn *clientRecv) Act(test *transactionTest) error {
-	fmt.Println("Checking Responses")
-	responses := test.lastTx.Responses()
-	select {
-	case response, ok := <-responses:
-		if !ok {
-			fmt.Println("Response channel prematurely closed")
-			return fmt.Errorf("Response channel prematurely closed")
-		} else if response.String() != actn.expected.String() {
-			fmt.Println("Unexpected response:\n%s", response.String())
-			return fmt.Errorf("Unexpected response:\n%s", response.String())
-		} else {
-			fmt.Println("Response from server:\n %s", response.String())
-			return nil
+	go func() error {
+		for {
+			fmt.Println("Checking Responses")
+			responses := test.lastTx.Responses()
+			select {
+			case response, ok := <-responses:
+				if !ok {
+					fmt.Println("Response channel prematurely closed")
+					return fmt.Errorf("Response channel prematurely closed")
+				} else if response.String() != actn.expected.String() {
+					fmt.Println("Unexpected response:\n%s", response.String())
+					return fmt.Errorf("Unexpected response:\n%s", response.String())
+				} else {
+					fmt.Println("Response from server:\n %s", response.String())
+					return nil
+				}
+			case <-time.After(time.Duration(1)*time.Second):
+				fmt.Println("Timed out waiting for response")
+				return fmt.Errorf("Timed out waiting for response")
+			}
 		}
-	case <-time.After(time.Duration(2)*time.Second):
-		fmt.Println("Timed out waiting for response")
-		return fmt.Errorf("Timed out waiting for response")
-	}
+	}()
+	return nil
 }
 
 type serverRecv struct {
@@ -200,16 +188,20 @@ type serverRecv struct {
 }
 
 func (actn *serverRecv) Act(test *transactionTest) error {
+	fmt.Println("[client_test]:serverRecv Act")
 	select {
 	case msg, ok := <-test.serverRecv:
 		if !ok {
+			fmt.Println("Server receive channel prematurely closed")
 			return fmt.Errorf("Server receive channel prematurely closed")
 		} else if msg.String() != actn.expected.String() {
+			fmt.Println("Unexpected message arrived at server:\n%s", msg.String())
 			return fmt.Errorf("Unexpected message arrived at server:\n%s", msg.String())
 		} else {
 			return nil
 		}
 	case <-time.After(time.Duration(2)*time.Second):
+		fmt.Println("Timed out waiting for message on server")
 		return fmt.Errorf("Timed out waiting for message on server")
 	}
 }
